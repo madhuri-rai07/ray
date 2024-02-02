@@ -4,5 +4,6 @@ steps:
     wanda: ci/docker/forge.wanda.yaml
 
   - label: "Verify Linux AMD64 wheels"
+    depends_on: forge
     commands:
       - echo "TODO"

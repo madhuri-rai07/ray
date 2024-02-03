@@ -131,6 +131,7 @@ class Reconciler:
     def step_next(
         instance_manager: InstanceManager,
         ray_cluster_resource_state: ClusterResourceState,
+        non_terminated_cloud_instances: Dict[CloudInstanceId, CloudInstance],
         scheduler: IResourceScheduler,
     ):
         """
@@ -158,7 +159,11 @@ class Reconciler:
                 a. Idle terminating ray nodes.
             6. Handle any stuck instances with timeouts.
         """
-        pass
+
+        # Shut down any extra cloud instances.
+        Reconciler._handle_extra_cloud_instances(
+            instance_manager, non_terminated_cloud_instances
+        )
 
     #######################################################
     # Private methods for reconciling instance states.
@@ -551,3 +556,52 @@ class Reconciler:
             return cur_im_status
 
         return reconciled_im_status
+
+    @staticmethod
+    def _handle_extra_cloud_instances(
+        instance_manager: InstanceManager,
+        non_terminated_cloud_instances: Dict[CloudInstanceId, CloudInstance],
+    ):
+        """
+        Shut down extra cloud instances that are not managed by the instance manager.
+
+        Since we have sync the IM states with the cloud provider's states in
+        earlier step (`sync_from`), each non terminated cloud instance should either
+        be :
+            1. assigned to a newly ALLOCATED im instance
+            2. already associated with an im instance that's running/terminating.
+
+        Any cloud instance that's not managed by the IM should be considered leak.
+
+        Args:
+            instance_manager: The instance manager to reconcile.
+            non_terminated_cloud_instances: The non-terminated cloud instances from
+                the cloud provider.
+        """
+        instances, version = Reconciler._get_im_instances(instance_manager)
+        updates = {}
+
+        cloud_instance_ids_managed_by_im = {
+            instance.cloud_instance_id
+            for instance in instances
+            if instance.cloud_instance_id
+        }
+
+        for cloud_instance_id, cloud_instance in non_terminated_cloud_instances.items():
+            if cloud_instance_id in cloud_instance_ids_managed_by_im:
+                continue
+
+            # The cloud instance is not managed by the instance manager.
+            updates[cloud_instance_id] = IMInstanceUpdateEvent(
+                instance_id=cloud_instance_id,
+                new_instance_status=IMInstance.TERMINATING,
+                details="Shutting down extra cloud instance.",
+            )
+
+            logger.debug(
+                "Updating {} with {}".format(
+                    cloud_instance_id, MessageToDict(updates[cloud_instance_id])
+                )
+            )
+
+        Reconciler._update_instance_manager(instance_manager, updates, version)

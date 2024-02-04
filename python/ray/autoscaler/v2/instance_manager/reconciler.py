@@ -160,9 +160,8 @@ class Reconciler:
     @staticmethod
     def _step_next(
         instance_manager: InstanceManager,
-        ray_cluster_resource_state: ClusterResourceState,
-        non_terminated_cloud_instances: Dict[CloudInstanceId, CloudInstance],
         scheduler: IResourceScheduler,
+        ray_cluster_resource_state: ClusterResourceState,
         non_terminated_cloud_instances: Dict[CloudInstanceId, CloudInstance],
     ):
         """

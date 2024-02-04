@@ -15,7 +15,6 @@ from ray.core.generated.instance_manager_pb2 import (
     GetInstanceManagerStateRequest,
     Instance,
     InstanceUpdateEvent,
-    LaunchRequest,
     StatusCode,
     UpdateInstanceManagerStateRequest,
 )
@@ -28,15 +27,18 @@ class InstanceManagerTest(unittest.TestCase):
         # Version mismatch on reading from the storage.
         ins_storage.get_instances.return_value = ({}, 1)
 
-        launch_req = LaunchRequest(
-            instance_type="type-1",
-            count=1,
-            id="id-1",
-        )
+        updates = [
+            InstanceUpdateEvent(
+                instance_type="type-1",
+                instance_id="id-1",
+                new_instance_status=Instance.QUEUED,
+                insert=True,
+            )
+        ]
         reply = im.update_instance_manager_state(
             UpdateInstanceManagerStateRequest(
                 expected_version=0,
-                launch_requests=[launch_req],
+                updates=updates,
             )
         )
         assert reply.status.code == StatusCode.VERSION_MISMATCH
@@ -45,7 +47,7 @@ class InstanceManagerTest(unittest.TestCase):
         reply = im.update_instance_manager_state(
             UpdateInstanceManagerStateRequest(
                 expected_version=1,
-                launch_requests=[launch_req],
+                updates=updates,
             )
         )
         assert reply.status.code == StatusCode.OK
@@ -57,7 +59,7 @@ class InstanceManagerTest(unittest.TestCase):
         reply = im.update_instance_manager_state(
             UpdateInstanceManagerStateRequest(
                 expected_version=1,
-                launch_requests=[launch_req],
+                updates=updates,
             )
         )
         assert reply.status.code == StatusCode.VERSION_MISMATCH
@@ -69,7 +71,7 @@ class InstanceManagerTest(unittest.TestCase):
         reply = im.update_instance_manager_state(
             UpdateInstanceManagerStateRequest(
                 expected_version=1,
-                launch_requests=[launch_req],
+                updates=updates,
             )
         )
         assert reply.status.code == StatusCode.UNKNOWN_ERRORS
@@ -90,16 +92,24 @@ class InstanceManagerTest(unittest.TestCase):
         reply = im.update_instance_manager_state(
             UpdateInstanceManagerStateRequest(
                 expected_version=0,
-                launch_requests=[
-                    LaunchRequest(
+                updates=[
+                    InstanceUpdateEvent(
                         instance_type="type-1",
-                        count=1,
-                        id="id-1",
+                        instance_id="id-1",
+                        new_instance_status=Instance.QUEUED,
+                        insert=True,
                     ),
-                    LaunchRequest(
+                    InstanceUpdateEvent(
                         instance_type="type-2",
-                        count=2,
-                        id="id-2",
+                        instance_id="id-2",
+                        new_instance_status=Instance.QUEUED,
+                        insert=True,
+                    ),
+                    InstanceUpdateEvent(
+                        instance_type="type-2",
+                        instance_id="id-3",
+                        new_instance_status=Instance.QUEUED,
+                        insert=True,
                     ),
                 ],
             )
@@ -111,13 +121,10 @@ class InstanceManagerTest(unittest.TestCase):
         assert reply.status.code == StatusCode.OK
         assert len(reply.state.instances) == 3
 
-        instance_ids = [ins.instance_id for ins in reply.state.instances]
-
         types_count = defaultdict(int)
         for ins in reply.state.instances:
             types_count[ins.instance_type] += 1
             assert ins.status == Instance.QUEUED
-            assert ins.launch_request_id in ["id-1", "id-2"]
 
         assert types_count["type-1"] == 1
         assert types_count["type-2"] == 2
@@ -128,11 +135,11 @@ class InstanceManagerTest(unittest.TestCase):
                 expected_version=1,
                 updates=[
                     InstanceUpdateEvent(
-                        instance_id=instance_ids[0],
+                        instance_id="id-1",
                         new_instance_status=Instance.REQUESTED,
                     ),
                     InstanceUpdateEvent(
-                        instance_id=instance_ids[1],
+                        instance_id="id-2",
                         new_instance_status=Instance.REQUESTED,
                     ),
                 ],
@@ -149,7 +156,7 @@ class InstanceManagerTest(unittest.TestCase):
         types_count = defaultdict(int)
         for ins in reply.state.instances:
             types_count[ins.instance_type] += 1
-            if ins.instance_id in [instance_ids[0], instance_ids[1]]:
+            if ins.instance_id in ["id-1", "id-2"]:
                 assert ins.status == Instance.REQUESTED
             else:
                 assert ins.status == Instance.QUEUED
@@ -160,7 +167,7 @@ class InstanceManagerTest(unittest.TestCase):
                 expected_version=2,
                 updates=[
                     InstanceUpdateEvent(
-                        instance_id=instance_ids[2],
+                        instance_id="id-3",
                         new_instance_status=Instance.RAY_RUNNING,  # Not requested yet.
                     ),
                 ],
@@ -174,7 +181,7 @@ class InstanceManagerTest(unittest.TestCase):
                 expected_version=0,  # Invalid version, outdated.
                 updates=[
                     InstanceUpdateEvent(
-                        instance_id=instance_ids[2],
+                        instance_id="id-3",
                         new_instance_status=Instance.REQUESTED,
                     ),
                 ],

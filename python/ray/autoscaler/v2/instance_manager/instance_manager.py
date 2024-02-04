@@ -1,5 +1,4 @@
 import logging
-import uuid
 
 from ray.autoscaler.v2.instance_manager.common import (
     InstanceUtil,
@@ -65,7 +64,11 @@ class InstanceManager:
         """
 
         # Handle updates
-        ids_to_updates = {update.instance_id: update for update in request.updates}
+        ids_to_updates = {
+            update.instance_id: update
+            for update in request.updates
+            if not update.insert
+        }
         to_update_instances, version = self._instance_storage.get_instances(
             ids_to_updates.keys() if ids_to_updates else {}
         )
@@ -93,16 +96,18 @@ class InstanceManager:
                     StatusCode.INVALID_VALUE, version, str(e)
                 )
 
-        # Handle launch requests.
+        # Handle new instances.
+        ids_to_upserts = {
+            update.instance_id: update for update in request.updates if update.insert
+        }
         new_instances = []
-        for request in request.launch_requests:
-            for _ in range(request.count):
-                instance = InstanceUtil.new_instance(
-                    instance_id=self._random_instance_id(),
-                    instance_type=request.instance_type,
-                    request_id=request.id,
-                )
-                new_instances.append(instance)
+        for instance_id, update_event in ids_to_upserts.items():
+            instance = InstanceUtil.new_instance(
+                instance_id=instance_id,
+                instance_type=update_event.instance_type,
+                status=update_event.new_instance_status,
+            )
+            new_instances.append(instance)
 
         # Updates the instance storage.
         result = self._instance_storage.batch_upsert_instances(
@@ -151,12 +156,6 @@ class InstanceManager:
     #########################################
     # Private methods
     #########################################
-
-    def _random_instance_id(self) -> str:
-        """
-        Returns an instance_id.
-        """
-        return str(uuid.uuid4())
 
     def _get_update_im_state_reply(
         self, status_code: StatusCode, version: int, error_message: str = ""

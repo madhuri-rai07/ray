@@ -42,15 +42,16 @@ class InstanceUtil:
         instance_id: str,
         instance_type: str,
         request_id: str = "",
+        status: Instance.InstanceStatus = Instance.QUEUED,
     ) -> Instance:
         instance = Instance()
         instance.version = 0  # it will be populated by the underlying storage.
         instance.instance_id = instance_id
         instance.instance_type = instance_type
         instance.launch_request_id = request_id
-        instance.status = Instance.QUEUED
+        instance.status = status
         InstanceUtil._record_status_transition(
-            instance, Instance.QUEUED, "created from InstanceUtil"
+            instance, instance.status, "created from InstanceUtil"
         )
         return instance
 
